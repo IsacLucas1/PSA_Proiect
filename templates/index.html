@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <title>PSA Mixer Ultimate</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: #fff; padding: 20px; display: flex; flex-direction: column; align-items: center;}
+
+        canvas {
+            background: #000; border: 2px solid #333; border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 150, 255, 0.2); margin-bottom: 20px; width: 100%; max-width: 800px;
+        }
+
+        .master-controls {
+            width: 90%; max-width: 800px; background: #2a2a2a; padding: 15px; border-radius: 10px; margin-bottom: 20px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid #555;
+            position: relative;
+        }
+
+        .global-actions {
+            display: flex; gap: 10px; margin-top: 15px; width: 100%; justify-content: center; align-items: center;
+            border-top: 1px solid #444; padding-top: 10px; flex-wrap: wrap;
+        }
+
+        .btn-global {
+            padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; text-transform: uppercase;
+            color: #fff; transition: 0.2s; white-space: nowrap;
+        }
+        .btn-g-reset { background: #555; }
+        .btn-g-reset:hover { background: #777; }
+        .btn-g-delete { background: #8B0000; }
+        .btn-g-delete:hover { background: #b71c1c; }
+
+        .btn-rec {
+            width: 40px; height: 40px; border-radius: 50%; border: 3px solid #ccc;
+            background: #444; color: #fff; font-weight: bold; cursor: pointer;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+        .rec-dot { width: 15px; height: 15px; background: #ff0000; border-radius: 50%; }
+        .recording-active { border-color: #ff0000; animation: pulse-border 1s infinite; }
+        .recording-active .rec-dot { animation: flash 1s infinite; }
+        @keyframes pulse-border { 0% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(255, 0, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 0, 0, 0); } }
+        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        #rec-status-text { margin-left: 10px; font-size: 12px; color: #aaa; font-style: italic; min-width: 120px;}
+
+        .mixer-container {
+            display: flex; gap: 15px; overflow-x: auto; padding: 10px; width: 95%; min-height: 400px;
+            justify-content: flex-start; align-items: flex-start;
+        }
+        .mixer-container::-webkit-scrollbar { height: 10px; }
+        .mixer-container::-webkit-scrollbar-track { background: #1a1a1a; }
+        .mixer-container::-webkit-scrollbar-thumb { background: #555; border-radius: 5px; }
+
+        .track-strip {
+            background: #2d2d2d; border: 1px solid #444; border-radius: 8px;
+            width: 200px; padding: 15px; display: flex; flex-direction: column; align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.2s;
+            position: relative; flex-shrink: 0;
+        }
+
+        .btn-delete { position: absolute; top: 5px; right: 5px; background: transparent; color: #d32f2f; border: none; font-weight: bold; font-size: 16px; cursor: pointer; }
+        .btn-reset { position: absolute; top: 5px; left: 5px; background: transparent; color: #aaa; border: none; font-size: 16px; cursor: pointer; font-weight: bold; }
+        .btn-reset:hover { color: #fff; transform: rotate(-90deg); transition: 0.3s; }
+
+        .track-title {
+            font-size: 13px; font-weight: bold; margin-bottom: 15px;
+            text-align: center; height: 35px; overflow: hidden; color: #fff;
+            border-bottom: 1px solid #444; width: 90%; margin-top: 10px;
+        }
+
+        .control-group { width: 100%; margin-bottom: 8px; text-align: center; }
+        input[type=range] { width: 100%; cursor: pointer; margin: 2px 0; }
+        label { font-size: 10px; color: #aaa; letter-spacing: 1px; text-transform: uppercase; display: block;}
+
+        .reverb-slider { accent-color: #9b59b6; }
+        .speed-slider { accent-color: #e67e22; }
+
+        .btn { padding: 10px; width: 100%; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px; font-weight: bold; text-transform: uppercase; font-size: 12px;}
+        .btn-play { background: #388E3C; color: white; }
+        .btn-active { background: #FF5252; box-shadow: inset 0 0 5px rgba(0,0,0,0.5); }
+
+        .add-track {
+            border: 2px dashed #555; min-width: 140px; height: 300px; border-radius: 10px;
+            display: flex; justify-content: center; align-items: center; cursor: pointer;
+            color: #555; font-size: 40px; transition: 0.3s; flex-shrink: 0;
+        }
+        .add-track:hover { border-color: #aaa; color: #aaa; }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-box { background: #2d2d2d; border: 2px solid #555; border-radius: 10px; padding: 20px; width: 300px; text-align: center; box-shadow: 0 0 20px rgba(255,0,0,0.3); animation: popIn 0.3s ease; }
+        @keyframes popIn { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        .modal-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #ff5252; }
+        .modal-msg { font-size: 14px; margin-bottom: 20px; color: #ddd; }
+        .modal-btns { display: flex; justify-content: center; gap: 15px; }
+        .m-btn { padding: 8px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .m-yes { background: #d32f2f; color: white; }
+        .m-no { background: #555; color: white; }
+    </style>
+</head>
+<body>
+    <div id="customModal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-title">⚠️ Mixer Master says:</div>
+            <div class="modal-msg">Ești sigur că vrei să ștergi toate melodiile?</div>
+            <div class="modal-btns">
+                <button class="m-btn m-yes" onclick="confirmDeleteAll()">DA</button>
+                <button class="m-btn m-no" onclick="closeModal()">NU</button>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="vizCanvas" width="800" height="150"></canvas>
+
+    <div class="master-controls">
+        <label style="font-size: 14px; margin-bottom: 5px; color: #fff;">MASTER OUTPUT</label>
+        <input type="range" id="master-vol" min="0" max="1.5" step="0.01" value="1.0" oninput="updateMaster(this.value)" style="width: 50%;">
+
+        <div class="global-actions">
+            <div class="btn-rec" id="btn-rec" onclick="toggleRecord()" title="Start/Stop Recording"><div class="rec-dot"></div></div>
+            <span id="rec-status-text">Ready to record</span>
+            <div style="flex-grow: 1;"></div>
+            <button class="btn-global btn-g-reset" onclick="resetAllEffects()">♻️ Reset Effects</button>
+            <button class="btn-global btn-g-delete" onclick="askDeleteAll()">🗑️ Delete All</button>
+        </div>
+    </div>
+
+    <div class="mixer-container" id="mixer">
+        <div class="add-track" onclick="document.getElementById('file-input').click()">+</div>
+    </div>
+
+    <input type="file" id="file-input" accept=".wav,.mp3,.m4a" onchange="uploadTrack(this)" style="display:none;">
+
+    <script>
+        const socket = io();
+        const modal = document.getElementById('customModal');
+        let isRecording = false;
+
+        function toggleRecord() {
+            const btn = document.getElementById('btn-rec');
+            isRecording = !isRecording;
+            if (isRecording) { btn.classList.add('recording-active'); socket.emit('toggle_recording', { record: true }); }
+            else { btn.classList.remove('recording-active'); socket.emit('toggle_recording', { record: false }); }
+        }
+
+        socket.on('rec_status', (msg) => {
+            const txt = document.getElementById('rec-status-text');
+            const btn = document.getElementById('btn-rec');
+
+            if(msg.status === 'recording') {
+                txt.innerText = "Recording... (ON AIR)"; txt.style.color = "#ff0000";
+                btn.classList.add('recording-active'); isRecording = true;
+            }
+            else if(msg.status === 'saving') { txt.innerText = "Check PC for Save Dialog..."; txt.style.color = "#ffff00"; btn.classList.remove('recording-active'); isRecording = false; }
+            else if(msg.status === 'saved') { txt.innerText = "Saved: " + msg.filename; txt.style.color = "#00ff00"; setTimeout(() => { txt.innerText = "Ready to record"; txt.style.color = "#aaa"; }, 5000); }
+            else if(msg.status === 'cancelled') { txt.innerText = "Save Cancelled"; txt.style.color = "#aaa"; setTimeout(() => { txt.innerText = "Ready to record"; }, 3000); }
+            else if(msg.status === 'empty') { txt.innerText = "Buffer Empty!"; btn.classList.remove('recording-active'); isRecording = false; }
+        });
+
+        const canvas = document.getElementById('vizCanvas');
+        const ctx = canvas.getContext('2d');
+        socket.on('viz_update', (msg) => {
+            const data = msg.data;
+            const width = canvas.width;
+            const height = canvas.height;
+            const barWidth = (width / data.length) - 2;
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            for (let i = 0; i < data.length; i++) {
+                const barHeight = data[i] * height;
+                const gradient = ctx.createLinearGradient(0, height, 0, 0);
+                gradient.addColorStop(0, '#00ff00');
+                gradient.addColorStop(0.6, '#ffff00');
+                gradient.addColorStop(1, '#ff0000');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(i * (barWidth + 2), height - barHeight, barWidth, barHeight);
+            }
+        });
+
+        socket.on('new_track_added', (data) => {
+            if(!document.getElementById(`track-${data.id}`)) {
+                createTrackUI(data.id, data.name);
+            }
+        });
+
+        socket.on('sync_control', (data) => {
+            if(data.master_volume !== undefined) {
+                document.getElementById('master-vol').value = data.master_volume;
+                return;
+            }
+            if(data.volume !== undefined) document.getElementById(`vol-${data.id}`).value = data.volume;
+            if(data.pan !== undefined) document.getElementById(`pan-${data.id}`).value = data.pan;
+            if(data.bass !== undefined) document.getElementById(`bass-${data.id}`).value = data.bass;
+            if(data.treble !== undefined) document.getElementById(`treble-${data.id}`).value = data.treble;
+            if(data.reverb !== undefined) document.getElementById(`reverb-${data.id}`).value = data.reverb;
+            if(data.speed !== undefined) document.getElementById(`speed-${data.id}`).value = data.speed;
+
+            if(data.playing !== undefined) {
+                const btn = document.getElementById(`btn-${data.id}`);
+                if(data.playing) { btn.classList.add('btn-active'); btn.innerText = "STOP"; }
+                else { btn.classList.remove('btn-active'); btn.innerText = "PLAY"; }
+            }
+        });
+
+        socket.on('sync_remove_track', (data) => {
+            const el = document.getElementById(`track-${data.id}`);
+            if (el) el.remove();
+        });
+
+        socket.on('sync_remove_all', () => {
+            const tracks = document.querySelectorAll('.track-strip');
+            tracks.forEach(t => t.remove());
+        });
+
+        socket.on('sync_reset_track', (data) => {
+            const id = data.id;
+            document.getElementById(`vol-${id}`).value = 1.0;
+            document.getElementById(`pan-${id}`).value = 0.5;
+            document.getElementById(`bass-${id}`).value = 0;
+            document.getElementById(`treble-${id}`).value = 0;
+            document.getElementById(`reverb-${id}`).value = 0;
+            document.getElementById(`speed-${id}`).value = 1.0;
+        });
+
+        socket.on('sync_reset_all', () => {
+            document.querySelectorAll('input[id^="vol-"]').forEach(el => el.value = 1.0);
+            document.querySelectorAll('input[id^="pan-"]').forEach(el => el.value = 0.5);
+            document.querySelectorAll('input[id^="bass-"]').forEach(el => el.value = 0);
+            document.querySelectorAll('input[id^="treble-"]').forEach(el => el.value = 0);
+            document.querySelectorAll('input[id^="reverb-"]').forEach(el => el.value = 0);
+            document.querySelectorAll('input[id^="speed-"]').forEach(el => el.value = 1.0);
+        });
+
+        async function uploadTrack(input) {
+            if (input.files && input.files[0]) {
+                const formData = new FormData();
+                formData.append('file', input.files[0]);
+                try {
+                    await fetch('/upload', { method: 'POST', body: formData });
+                } catch (e) { alert("Eroare upload"); }
+                input.value = '';
+            }
+        }
+
+        function createTrackUI(id, name) {
+            const container = document.getElementById('mixer');
+            const div = document.createElement('div');
+            div.className = 'track-strip';
+            div.id = `track-${id}`;
+            div.innerHTML = `
+                <button class="btn-reset" onclick="resetTrack(${id})" title="Reset Effects">↺</button>
+                <button class="btn-delete" onclick="removeTrack(${id})" title="Remove Track">✕</button>
+                <div class="track-title" title="${name}">${name}</div>
+                <div class="control-group"><label>Volume</label><input type="range" id="vol-${id}" min="0" max="1.5" step="0.01" value="1.0" oninput="upd(${id}, 'volume', this.value)"></div>
+                <div class="control-group"><label>Pan (L - R)</label><input type="range" id="pan-${id}" min="0" max="1" step="0.01" value="0.5" oninput="upd(${id}, 'pan', this.value)"></div>
+                <div class="control-group"><label>Bass EQ</label><input type="range" id="bass-${id}" min="-15" max="15" step="1" value="0" oninput="upd(${id}, 'bass', this.value)"></div>
+                <div class="control-group"><label>Treble EQ</label><input type="range" id="treble-${id}" min="-15" max="15" step="1" value="0" oninput="upd(${id}, 'treble', this.value)"></div>
+                <div class="control-group">
+                    <label style="color: #cda8ff">Reverb</label>
+                    <input type="range" class="reverb-slider" id="reverb-${id}" min="0" max="1" step="0.01" value="0" oninput="upd(${id}, 'reverb', this.value)">
+                </div>
+                <div class="control-group">
+                    <label style="color: #e67e22">Speed</label>
+                    <input type="range" class="speed-slider" id="speed-${id}" min="0.5" max="2.0" step="0.1" value="1.0" oninput="upd(${id}, 'speed', this.value)">
+                </div>
+                <button class="btn btn-play" id="btn-${id}" onclick="play(${id})">PLAY</button>
+            `;
+            container.insertBefore(div, container.lastElementChild);
+        }
+
+        function removeTrack(id) { socket.emit('remove_track', { id: id }); }
+        function resetTrack(id) { socket.emit('reset_track', { id: id }); }
+        function askDeleteAll() { modal.style.display = 'flex'; }
+        function closeModal() { modal.style.display = 'none'; }
+        function confirmDeleteAll() { socket.emit('remove_all_tracks'); closeModal(); }
+        function resetAllEffects() { socket.emit('reset_all_effects'); }
+        function upd(id, type, val) { socket.emit('control_update', { id: id, [type]: val }); }
+        function updateMaster(val) { socket.emit('control_update', { master_volume: val }); }
+        function play(id) {
+            const btn = document.getElementById(`btn-${id}`);
+            const isActive = btn.classList.contains('btn-active');
+
+            // 1. Modificăm vizual butonul imediat (pentru noi)
+            if (isActive) {
+                btn.classList.remove('btn-active');
+                btn.innerText = "PLAY";
+                socket.emit('control_update', { id: id, playing: false });
+            } else {
+                btn.classList.add('btn-active');
+                btn.innerText = "STOP";
+                socket.emit('control_update', { id: id, playing: true });
+            }
+        }
+    </script>
+</body>
+</html>
