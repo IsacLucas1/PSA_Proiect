@@ -130,7 +130,7 @@ class AudioTrack:
             raw_chunk = np.vstack((first_part, second_part))
             self.position = remain
         else:
-            raw_chunk = self.data[start:end]
+            raw_chunk = self.data[start:end].copy()
             self.position = end
 
         # --- RE-EȘANTIONARE (INTERPOLARE) ---
@@ -318,7 +318,12 @@ def handle_reset(data):
         track.bass_gain = 0.0
         track.treble_gain = 0.0
         track.reverb_amount = 0.0
-        track.speed = 1.0  # Reset speed la normal
+        track.speed = 1.0
+
+        track.zi_bass = np.zeros((2, 2), dtype=np.float32)
+        track.zi_treble = np.zeros((2, 2), dtype=np.float32)
+        track.delay_buffer = np.zeros((track.delay_len, CHANNELS), dtype=np.float32)
+
         socketio.emit('sync_reset_track', {'id': t_id})
 
 
