@@ -69,8 +69,7 @@ class AudioTrack:
         self.pan = 0.5
         self.position = 0
 
-        # Parametri Noi
-        self.speed = 1.0  # 1.0 = Normal, 0.5 = Slow, 2.0 = Fast
+        self.speed = 1.0
         self.bass_gain = 0.0
         self.treble_gain = 0.0
         self.reverb_amount = 0.0
@@ -103,24 +102,16 @@ class AudioTrack:
         if not self.playing or not self.loaded:
             return np.zeros((output_size, CHANNELS), dtype=np.float32)
 
-        # --- LOGICA DE SPEED / RESAMPLING ---
-        # Calculăm câte sample-uri "reale" trebuie să citim din fișier
-        # pentru a umple bufferul de output, ținând cont de viteză.
-        # Ex: Dacă viteza e 2.0, citim dublu (4096) și le înghesuim în (2048).
-
         needed_source_frames = int(output_size * self.speed)
 
         start = self.position
         end = start + needed_source_frames
 
-        # Extragem bucata din sursă (cu Loop logic)
         if end > len(self.data):
             first_part = self.data[start:]
             remain = needed_source_frames - len(first_part)
 
-            # Caz extrem: loop-ul e mai mic decât bufferul
             if remain > len(self.data):
-                # Umplem cu zerouri pt simplitate (sau am putea repeta de mai multe ori)
                 second_part = np.zeros((remain, CHANNELS), dtype=np.float32)
                 if len(self.data) > 0:
                     second_part[:len(self.data)] = self.data[:len(second_part)]
@@ -133,16 +124,11 @@ class AudioTrack:
             raw_chunk = self.data[start:end].copy()
             self.position = end
 
-        # --- RE-EȘANTIONARE (INTERPOLARE) ---
-        # Dacă viteza nu e 1.0, trebuie să redimensionăm raw_chunk la output_size
         if abs(self.speed - 1.0) > 0.01:
-            # Creăm axa timpului pentru input și output
             x_old = np.linspace(0, 1, len(raw_chunk))
             x_new = np.linspace(0, 1, output_size)
 
-            # Interpolăm canalul Stânga
             resampled_l = np.interp(x_new, x_old, raw_chunk[:, 0])
-            # Interpolăm canalul Dreapta
             resampled_r = np.interp(x_new, x_old, raw_chunk[:, 1])
 
             chunk = np.column_stack((resampled_l, resampled_r)).astype(np.float32)
@@ -152,21 +138,16 @@ class AudioTrack:
         return self.apply_dsp(chunk)
 
     def apply_dsp(self, chunk):
-        # 1. REVERB (Delay Network)
         if self.reverb_amount > 0.05:
             n = len(chunk)
-            # Logica de buffer circular simplificată
             delayed_sig = np.zeros_like(chunk)
 
-            # Verificăm dacă citirea depășește bufferul
             if self.delay_ptr + n <= self.delay_len:
                 delayed_sig = self.delay_buffer[self.delay_ptr: self.delay_ptr + n]
-                # Feedback: scriem înapoi (input + 60% din ecou)
                 feedback = chunk + (delayed_sig * 0.6)
                 self.delay_buffer[self.delay_ptr: self.delay_ptr + n] = feedback
                 self.delay_ptr += n
             else:
-                # Wrap around
                 part1 = self.delay_len - self.delay_ptr
                 part2 = n - part1
                 delayed_sig[:part1] = self.delay_buffer[self.delay_ptr:]
@@ -179,24 +160,20 @@ class AudioTrack:
 
             if self.delay_ptr >= self.delay_len: self.delay_ptr = 0
 
-            # Mixăm semnalul
             chunk = chunk + (delayed_sig * self.reverb_amount)
 
-        # 2. BASS
         if abs(self.bass_gain) > 0.1:
             w0 = 2 * np.pi * 200 / SAMPLE_RATE
             b, a = make_shelf(w0, self.bass_gain, 'low')
             for ch in range(CHANNELS):
                 chunk[:, ch], self.zi_bass[:, ch] = lfilter(b, a, chunk[:, ch], zi=self.zi_bass[:, ch])
 
-        # 3. TREBLE
         if abs(self.treble_gain) > 0.1:
             w0 = 2 * np.pi * 3000 / SAMPLE_RATE
             b, a = make_shelf(w0, self.treble_gain, 'high')
             for ch in range(CHANNELS):
                 chunk[:, ch], self.zi_treble[:, ch] = lfilter(b, a, chunk[:, ch], zi=self.zi_treble[:, ch])
 
-        # 4. VOLUM & PAN
         processed = chunk * self.volume
         left_gain = (1.0 - self.pan) * 2
         right_gain = self.pan * 2
